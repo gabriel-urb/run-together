@@ -60,7 +60,7 @@ export default function Explorer() {
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div className="flex items-center gap-2 text-zinc-400">
                   <MapPin size={16} className="text-orange-500" />
-                  <span className="text-sm truncate">{run.location}</span>
+                  <span className="text-sm truncate">{run.place}</span>
                 </div>
                 <div className="flex items-center gap-2 text-zinc-400">
                   <Gauge size={16} className="text-orange-500" />
