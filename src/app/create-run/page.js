@@ -1,230 +1,290 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase'
 import { useRouter } from 'next/navigation'
 import { Map, Marker } from 'react-map-gl/mapbox'
 import dynamic from 'next/dynamic'
-import { LocateFixed, MapPin, Gauge, Type, ChevronLeft } from 'lucide-react'
+import { 
+  LocateFixed, Calendar, Clock, Trophy, Mountain, 
+  Zap, Users, ChevronRight, ChevronLeft, Gauge, 
+  Ruler, Timer, MapPin, AlignLeft 
+} from 'lucide-react'
 import 'mapbox-gl/dist/mapbox-gl.css'
 
 const SearchBox = dynamic(
   () => import('@mapbox/search-js-react').then((mod) => mod.SearchBox),
-  { 
-    ssr: false,
-    loading: () => <div className="h-14 w-full bg-zinc-900 animate-pulse rounded-2xl" /> 
-  }
+  { ssr: false, loading: () => <div className="h-14 w-full bg-zinc-900 animate-pulse rounded-2xl" /> }
 )
 
 export default function CreateRun() {
-  const [title, setTitle] = useState('')
-  const [place, setPlace] = useState('')
-  const [pace, setPace] = useState('')
+  const router = useRouter()
+  const supabase = createClient()
+  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN
+
+  const [step, setStep] = useState(1)
+  const [formData, setFormData] = useState({
+    run_type: 'Run Social',
+    pace: '5:30',
+    distance: 10,
+    duration: '45 min - 1h',
+    run_profile: 'Plat',
+    elevation: 0,
+    run_soil: 'Route',
+    title: '',
+    date_only: new Date().toISOString().split('T')[0],
+    time_only: '18:30',
+    place: '',
+    lat: 45.7640,
+    lng: 4.8357,
+    accessibility: 'Tous niveaux',
+    max_attendees: 10 
+  })
+
   const [viewport, setViewport] = useState({
     latitude: 45.7640,
     longitude: 4.8357,
     zoom: 12
   })
-  const [marker, setMarker] = useState(null)
-
-  const supabase = createClient()
-  const router = useRouter()
-  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN
-
-  const paceOptions = [
-    "- de 3:00 min/km", "Entre 3:00 et 3:30 min/km", "Entre 3:30 et 4:00 min/km",
-    "Entre 4:00 et 4:30 min/km", "Entre 4:30 et 5:00 min/km", "Entre 5:00 et 5:30 min/km",
-    "+ de 5:30 min/km"
-  ]
-
-  useEffect(() => {
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition((position) => {
-        const { longitude, latitude } = position.coords
-        setViewport(prev => ({ ...prev, longitude, latitude, zoom: 14 }))
-        setMarker({ longitude, latitude })
-        updateAddress(longitude, latitude)
-      })
-    }
-  }, [])
 
   const updateAddress = async (lng, lat) => {
     try {
       const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${mapboxToken}&language=fr`)
       const data = await res.json()
-      if (data.features && data.features.length > 0) {
-        setPlace(data.features[0].place_name)
+      if (data.features?.length > 0) {
+        setFormData(prev => ({ ...prev, place: data.features[0].place_name, lat, lng }))
       }
     } catch (err) { console.error(err) }
   }
 
-  const handleMapClick = (e) => {
-    const { lng, lat } = e.lngLat
-    setMarker({ longitude: lng, latitude: lat })
-    updateAddress(lng, lat)
-  }
-
-  const handleRetrieve = useCallback((res) => {
-    const feature = res.features[0]
-    if (feature) {
-      const [lng, lat] = feature.geometry.coordinates
-      setPlace(feature.properties.full_address || feature.properties.name)
-      setMarker({ longitude: lng, latitude: lat })
-      setViewport(prev => ({ ...prev, longitude: lng, latitude: lat, zoom: 15 }))
-    }
-  }, [])
-
-  const handleRecenter = (e) => {
-    e.preventDefault()
-    navigator.geolocation.getCurrentPosition((position) => {
-      const { longitude, latitude } = position.coords
-      setViewport(prev => ({ ...prev, longitude, latitude, zoom: 15 }))
-      setMarker({ longitude, latitude })
-      updateAddress(longitude, latitude)
-    })
-  }
-
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!marker) return alert("Positionne le RDV sur la carte !")
-    
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return alert("Connecte-toi d'abord !")
 
+    const finalElevation = formData.run_profile === 'Plat' ? 0 : formData.elevation
+
     const { error } = await supabase.from('runs').insert([{ 
-      title, 
-      place, 
-      pace, 
-      location: `POINT(${marker.longitude} ${marker.latitude})`,
+      title: formData.title,
+      place: formData.place,
+      pace: formData.pace,
+      start_time: `${formData.date_only} ${formData.time_only}:00`,
+      distance: formData.distance,
+      duration: formData.duration,
+      run_type: formData.run_type,
+      run_soil: formData.run_soil,
+      run_profile: formData.run_profile,
+      elevation: finalElevation,
+      accessibility: formData.accessibility,
+      max_attendees: formData.max_attendees,
+      location: `POINT(${formData.lng} ${formData.lat})`,
       organizer_id: user.id 
     }])
 
-    if (error) alert(error.message)
-    else router.push('/explorer')
+    if (error) {
+      alert("Erreur : " + error.message)
+    } else {
+      router.push('/explorer')
+    }
   }
 
+  const BadgeSelector = ({ label, options, current, field, icon: Icon, values }) => (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 ml-1 text-zinc-500">
+        {Icon && <Icon size={14} />}
+        <label className="text-[10px] font-black uppercase tracking-widest">{label}</label>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {options.map((opt, index) => {
+          const value = values ? values[index] : opt
+          const isActive = current === value
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => setFormData({ ...formData, [field]: value })}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
+                isActive 
+                ? 'bg-orange-600 border-orange-500 text-white shadow-lg shadow-orange-900/20' 
+                : 'bg-zinc-900/50 text-zinc-400 border-white/5 hover:border-white/20'
+              }`}
+            >
+              {opt}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+
   return (
-    <main className="min-h-screen bg-black text-white p-6 flex items-center justify-center relative overflow-hidden">
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-orange-600/10 blur-[150px] pointer-events-none" />
+    <main className="min-h-screen bg-black text-white p-4 md:p-8 flex flex-col items-center relative overflow-hidden">
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-96 bg-orange-600/5 blur-[120px] pointer-events-none" />
 
-      <div className="relative z-10 w-full max-w-4xl bg-white/5 border border-white/10 backdrop-blur-xl p-8 rounded-[40px] shadow-2xl my-10">
-        <h1 className="text-3xl font-extrabold mb-2 italic text-white">PROPOSER UNE <span className="text-orange-500">SORTIE</span></h1>
-        <p className="text-zinc-400 mb-8 text-sm">Précise l'allure et le point de rendez-vous sur la carte.</p>
-        
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          
-          <div className="space-y-6">
-            <div>
-              <label className="block text-xs font-semibold text-zinc-500 uppercase mb-2 ml-1">Titre de la sortie</label>
-              <input required placeholder="ex: Footing Quais de Saône" value={title} onChange={(e) => setTitle(e.target.value)}
-                className="w-full p-4 rounded-2xl bg-zinc-900/50 border border-white/10 text-white focus:border-orange-500/50 outline-none transition-all" />
+      <div className="w-full max-w-4xl flex items-center gap-3 mb-12 px-4">
+        <div className={`h-1.5 flex-1 rounded-full transition-all duration-700 ${step >= 1 ? 'bg-orange-500' : 'bg-zinc-800'}`} />
+        <div className={`h-1.5 flex-1 rounded-full transition-all duration-700 ${step >= 2 ? 'bg-orange-500' : 'bg-zinc-800'}`} />
+      </div>
+
+      <div className="w-full max-w-4xl pb-20">
+        {step === 1 ? (
+          <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
+            <div className="px-2">
+              <h1 className="text-4xl font-black italic uppercase tracking-tighter">Étape 1 : <span className="text-orange-500">La Séance</span></h1>
+              <p className="text-zinc-500 text-sm">Définis les caractéristiques de ton run.</p>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-zinc-500 uppercase mb-2 ml-1">Allure prévue</label>
-              <select required onChange={(e) => setPace(e.target.value)} value={pace}
-                className="w-full p-4 rounded-2xl bg-zinc-900/50 border border-white/10 text-white focus:border-orange-500/50 outline-none appearance-none cursor-pointer">
-                <option value="" disabled>Choisir une allure</option>
-                {paceOptions.map((option) => (<option key={option} value={option} className="bg-zinc-900">{option}</option>))}
-              </select>
-            </div>
-
-            <div className="relative z-50">
-              <label className="block text-xs font-semibold text-zinc-500 uppercase mb-2 ml-1">Adresse de la sortie</label>
-              <SearchBox 
-                accessToken={mapboxToken}
-                value={place}
-                onRetrieve={handleRetrieve}
-                placeholder="Rechercher une adresse..."
-                options={{ proximity: [viewport.longitude, viewport.latitude], countries: 'fr', language: 'fr' }}
-                theme={{
-                  variables: {
-                    fontFamily: 'inherit',
-                    unit: '16px',
-                  },
-                  cssText: `
-                    /* 1. Le conteneur principal : on imite ton style zinc-900/50 */
-                    .mapboxsearch-search-container {
-                      background-color: rgba(24, 24, 27, 0.5) !important; 
-                      border: 1px solid rgba(255, 255, 255, 0.1) !important;
-                      border-radius: 1rem !important; /* Arrondi identique à tes inputs */
-                      height: 58px !important; /* Hauteur identique à tes autres champs */
-                      display: flex !important;
-                      align-items: center !important;
-                      padding-left: 1rem !important;
-                    }
-
-                    /* 2. L'input texte : BLANC et même taille de police */
-                    .mapboxsearch-search-input {
-                      color: white !important;
-                      -webkit-text-fill-color: white !important; /* Sécurité pour certains navigateurs */
-                      font-family: inherit !important;
-                      font-size: 1rem !important;
-                      background: transparent !important;
-                      width: 100% !important;
-                      outline: none !important;
-                      border: none !important;
-                    }
-
-                    /* 3. Le placeholder (texte indicatif) */
-                    .mapboxsearch-search-input::placeholder {
-                      color: #71717a !important; /* zinc-400 */
-                    }
-
-                    /* 4. Masquer l'icône loupe de Mapbox pour un look épuré comme tes autres champs */
-                    .mapboxsearch-search-icon {
-                      display: none !important;
-                    }
-
-                    /* 5. Menu déroulant des suggestions (Dark mode) */
-                    .mapboxsearch-dropdown {
-                      background-color: #18181b !important;
-                      border: 1px solid rgba(255, 255, 255, 0.1) !important;
-                      border-radius: 1rem !important;
-                      margin-top: 8px !important;
-                      overflow: hidden !important;
-                      z-index: 9999 !important;
-                    }
-
-                    .mapboxsearch-suggestion {
-                      color: white !important;
-                      padding: 12px 16px !important;
-                      font-family: inherit !important;
-                    }
-
-                    .mapboxsearch-suggestion:hover {
-                      background-color: #27272a !important;
-                    }
-                  `
-                }}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 bg-zinc-900/30 p-8 rounded-[40px] border border-white/5 backdrop-blur-md">
+              <BadgeSelector 
+                label="Type de sortie" field="run_type" current={formData.run_type} 
+                options={['EF', 'Sortie Longue', 'Seuil', 'Fractionné', 'Run Social']} icon={Trophy} 
               />
-            </div>
-          </div>
+              
+              <BadgeSelector 
+                label="Allure moyenne" field="pace" current={formData.pace} 
+                options={['4:00', '4:30', '5:00', '5:30', '6:00', '6:30+']} icon={Gauge} 
+              />
 
-          <div className="flex flex-col">
-            <label className="block text-xs font-semibold text-zinc-500 uppercase mb-2 ml-1">Position précise (clique sur la carte)</label>
-            <div className="flex-grow min-h-[350px] rounded-3xl overflow-hidden border border-white/10 relative">
-              <Map
-                {...viewport}
-                onMove={evt => setViewport(evt.viewState)}
-                onClick={handleMapClick}
-                mapStyle="mapbox://styles/mapbox/dark-v11"
-                mapboxAccessToken={mapboxToken}
-              >
-                {marker && <Marker longitude={marker.longitude} latitude={marker.latitude} color="#f97316" />}
-                
-                <button onClick={handleRecenter} className="absolute top-4 left-4 bg-zinc-900/80 backdrop-blur-md border border-white/10 p-2.5 rounded-xl hover:bg-orange-600 transition-all z-10 group">
-                  <LocateFixed size={20} className="text-white group-hover:scale-110" />
-                </button>
-              </Map>
-            </div>
-          </div>
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 ml-1 text-zinc-500">
+                  <Ruler size={14}/>
+                  <label className="text-[10px] font-black uppercase tracking-widest">Distance (km)</label>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {[5, 10, 15, 20].map(d => (
+                    <button key={d} type="button" onClick={() => setFormData({...formData, distance: d})}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${formData.distance == d ? 'bg-orange-600 border-orange-500 text-white' : 'bg-zinc-900 text-zinc-400 border-white/5'}`}>
+                      {d} km
+                    </button>
+                  ))}
+                </div>
+                <input type="number" value={formData.distance} onChange={e => setFormData({...formData, distance: e.target.value})} 
+                  className="w-full p-4 bg-zinc-900/80 rounded-2xl border border-white/10 outline-none focus:border-orange-500 transition-all font-bold text-white shadow-inner" />
+              </div>
 
-          <div className="md:col-span-2">
-            <button type="submit" className="w-full py-5 bg-gradient-to-r from-orange-600 to-red-600 rounded-2xl font-bold text-lg shadow-lg shadow-orange-900/30 hover:scale-[1.01] active:scale-95 transition-all">
-              Publier la course
+              <div className="space-y-3">
+                <BadgeSelector 
+                  label="Durée estimée" 
+                  field="duration" 
+                  current={formData.duration} 
+                  options={['< 45 min', '45 min - 1h', '1h - 1h30', '1h30 - 2h', '> 2h']} 
+                  icon={Timer} 
+                />
+              </div>
+
+              <BadgeSelector 
+                label="Profil du parcours" field="run_profile" current={formData.run_profile} 
+                options={['Plat', 'Vallonné', 'Côte', 'Montagne']} icon={Mountain} 
+              />
+
+              <BadgeSelector 
+                label="Revêtement" field="run_soil" current={formData.run_soil} 
+                options={['Route', 'Trail', 'Piste', 'Mixte']} icon={MapPin} 
+              />
+
+              {['Vallonné', 'Côte', 'Montagne'].includes(formData.run_profile) && (
+                <div className="col-span-1 md:col-span-2 space-y-4 animate-in slide-in-from-top-2 duration-300">
+                  <div className="flex items-center gap-2 ml-1 text-orange-500">
+                    <Zap size={14}/>
+                    <label className="text-[10px] font-black uppercase tracking-widest">Dénivelé positif (mètres)</label>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {[100, 200, 500, 1000, 1500, 2000].map(elevation => (
+                      <button key={elevation} type="button" onClick={() => setFormData({...formData, elevation})}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${formData.elevation == elevation ? 'bg-orange-600 border-orange-500 text-white' : 'bg-zinc-900 text-zinc-400 border-white/5'}`}>
+                        +{elevation}m
+                      </button>
+                    ))}
+                  </div>
+                  <input type="number" value={formData.elevation} onChange={e => setFormData({...formData, elevation: e.target.value})} 
+                    className="w-full p-4 bg-orange-500/10 rounded-2xl border border-orange-500/30 outline-none text-orange-500 font-bold shadow-inner" placeholder="Saisie manuelle..." />
+                </div>
+              )}
+            </div>
+
+            <button onClick={() => setStep(2)} className="w-full py-6 mt-8 bg-white text-black rounded-[30px] font-black uppercase tracking-widest hover:bg-orange-500 hover:text-white transition-all flex items-center justify-center gap-2 active:scale-[0.98]">
+              Suivant : Logistique <ChevronRight size={20} />
             </button>
           </div>
-        </form>
+        ) : (
+          <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
+            <div className="px-2">
+              <h1 className="text-4xl font-black italic uppercase tracking-tighter">Étape 2 : <span className="text-orange-500">Logistique</span></h1>
+              <p className="text-zinc-500 text-sm">Où et quand se retrouve-t-on ?</p>
+            </div>
+
+            <div className="bg-zinc-900/30 p-8 rounded-[40px] border border-white/5 backdrop-blur-md space-y-8">
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase text-zinc-500 ml-1">Titre de la sortie</label>
+                <input required placeholder="Donne un nom sympa à ton run..." value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full p-6 bg-zinc-900/80 rounded-3xl border border-white/10 text-xl font-bold outline-none focus:border-orange-500 shadow-inner" />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-zinc-900/80 p-4 rounded-2xl border border-white/10 shadow-inner"><label className="text-[10px] text-zinc-500 uppercase font-black">Date</label><input type="date" value={formData.date_only} onChange={e => setFormData({...formData, date_only: e.target.value})} className="bg-transparent w-full outline-none font-bold [color-scheme:dark]" /></div>
+                <div className="bg-zinc-900/80 p-4 rounded-2xl border border-white/10 shadow-inner"><label className="text-[10px] text-zinc-500 uppercase font-black">Heure</label><input type="time" value={formData.time_only} onChange={e => setFormData({...formData, time_only: e.target.value})} className="bg-transparent w-full outline-none font-bold [color-scheme:dark]" /></div>
+              </div>
+
+              <div className="space-y-4">
+                <label className="text-[10px] font-black uppercase text-zinc-500 ml-1">Lieu de rendez-vous</label>
+                <SearchBox 
+                  accessToken={mapboxToken} 
+                  value={formData.place} 
+                  onRetrieve={(res) => {
+                    const [lng, lat] = res.features[0].geometry.coordinates;
+                    setFormData({...formData, place: res.features[0].properties.full_address, lat, lng});
+                    setViewport(v => ({...v, longitude: lng, latitude: lat, zoom: 15}));
+                  }} 
+                  theme={{ 
+                    variables: { 
+                      colorBackground: '#18181b',
+                      colorText: '#ffffff', 
+                      fontFamily: 'inherit',
+                      border: '1px solid rgba(255,255,255,0.1)'
+                    },
+                    cssText: `
+                      .mapboxsearch-search-input { color: white !important; background-color: transparent !important; }
+                      .mapboxsearch-suggestion-title { color: white !important; }
+                      .mapboxsearch-suggestion-address { color: #a1a1aa !important; }
+                      .mapboxsearch-search-container { background-color: #09090b !important; border-radius: 16px !important; }
+                    ` 
+                  }} 
+                />
+                
+                <div className="h-[400px] rounded-[30px] overflow-hidden border border-white/10 relative shadow-2xl">
+                  <Map {...viewport} onMove={e => setViewport(e.viewState)} onClick={e => updateAddress(e.lngLat.lng, e.lngLat.lat)} mapStyle="mapbox://styles/mapbox/dark-v11" mapboxAccessToken={mapboxToken}>
+                    <Marker longitude={formData.lng} latitude={formData.lat} color="#f97316" />
+                    <button type="button" onClick={() => navigator.geolocation.getCurrentPosition(p => setViewport(v => ({...v, latitude: p.coords.latitude, longitude: p.coords.longitude, zoom: 15})))} 
+                      className="absolute top-4 left-4 bg-black/80 p-3 rounded-xl border border-white/10 hover:bg-orange-600 transition-all z-10">
+                      <LocateFixed size={18} />
+                    </button>
+                  </Map>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
+                <BadgeSelector 
+                  label="Niveau requis" field="accessibility" current={formData.accessibility} 
+                  options={['Tous niveaux', 'Intermédiaire', 'Confirmé']} icon={AlignLeft} 
+                />
+                
+                <BadgeSelector 
+                  label="Participants maximum" field="max_attendees" current={formData.max_attendees} 
+                  options={['3', '5', '10', '20', '50', 'Illimité']} 
+                  values={[3, 5, 10, 20, 50, 0]} 
+                  icon={Users} 
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-4">
+              <button type="button" onClick={() => setStep(1)} className="p-6 bg-zinc-900 text-white rounded-[30px] font-black uppercase flex items-center gap-2 hover:bg-zinc-800 transition-all">
+                <ChevronLeft size={20}/> Retour
+              </button>
+              <button onClick={handleSubmit} className="flex-1 py-6 bg-orange-600 text-white rounded-[30px] font-black uppercase tracking-widest shadow-2xl shadow-orange-900/40 flex items-center justify-center gap-2 hover:bg-orange-500 transition-all active:scale-[0.98]">
+                Diffuser la sortie <Zap size={18} className="fill-current"/>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   )
