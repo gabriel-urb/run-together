@@ -263,7 +263,7 @@ export default function CreateRun() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
                 <BadgeSelector 
                   label="Niveau requis" field="accessibility" current={formData.accessibility} 
-                  options={['Tous niveaux', 'Intermédiaire', 'Confirmé']} icon={AlignLeft} 
+                  options={['Tous niveaux', 'Débutant' , 'Intermédiaire', 'Confirmé']} icon={AlignLeft} 
                 />
                 
                 <BadgeSelector 

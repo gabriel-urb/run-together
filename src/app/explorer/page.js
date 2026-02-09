@@ -1,206 +1,209 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase'
-import { MapPin, Gauge, Calendar, Plus, Search, List, Map as MapIcon, X } from 'lucide-react'
-import Link from 'next/link'
-import { Map, Marker } from 'react-map-gl/mapbox'
-import 'mapbox-gl/dist/mapbox-gl.css'
-import JoinDrawer from '@/components/JoinDrawer'
+import { 
+  Calendar, Clock, Trophy, AlignLeft, 
+  Gauge, Mountain, Ruler, Filter, X , MapPin
+} from 'lucide-react'
 
 export default function Explorer() {
+  const supabase = createClient()
   const [runs, setRuns] = useState([])
   const [loading, setLoading] = useState(true)
-  const [viewMode, setViewMode] = useState('list') // 'list' ou 'map'
-  const [selectedRun, setSelectedRun] = useState(null)
-  
-  const supabase = createClient()
+
+  // États des filtres complets
+  const [filters, setFilters] = useState({
+    date: '',
+    time: '',
+    run_type: 'Tous',
+    accessibility: 'Tous',
+    pace: 'Tous',
+    run_profile: 'Tous',
+    distance: 'Tous'
+  })
 
   useEffect(() => {
-    async function fetchRuns() {
-      const { data, error } = await supabase
-        .from('runs_with_coords') // On appelle la VUE au lieu de la TABLE
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error("Erreur de récupération :", error);
-      } else {
-        console.log("Sorties récupérées :", data);
-        setRuns(data || []);
-      }
-      setLoading(false);
-    }
     fetchRuns()
-  }, [])
+  }, [filters])
+
+  const fetchRuns = async () => {
+    setLoading(true)
+    let query = supabase.from('runs').select('*').order('start_time', { ascending: true })
+
+    // 1. Filtres Supabase (Catégories exactes)
+    if (filters.date) {
+      query = query.gte('start_time', `${filters.date} 00:00:00`)
+      query = query.lte('start_time', `${filters.date} 23:59:59`)
+    }
+    if (filters.run_type !== 'Tous') query = query.eq('run_type', filters.run_type)
+    if (filters.accessibility !== 'Tous') query = query.eq('accessibility', filters.accessibility)
+    if (filters.run_profile !== 'Tous') query = query.eq('run_profile', filters.run_profile)
+    if (filters.pace !== 'Tous') query = query.eq('pace', filters.pace)
+
+    const { data, error } = await query
+    
+    if (error) {
+      console.error(error)
+    } else {
+      let filteredData = data
+
+      // 2. Filtre Heure local (+/- 1h)
+      if (filters.time) {
+        filteredData = filteredData.filter(run => {
+          const runDate = new Date(run.start_time)
+          const [fH, fM] = filters.time.split(':').map(Number)
+          const runMinutes = runDate.getHours() * 60 + runDate.getMinutes()
+          const filterMinutes = fH * 60 + fM
+          return Math.abs(runMinutes - filterMinutes) <= 60
+        })
+      }
+
+      // 3. Filtre Distance local (Tranches)
+      if (filters.distance !== 'Tous') {
+        filteredData = filteredData.filter(run => {
+          if (filters.distance === '0-5') return run.distance <= 5
+          if (filters.distance === '5-10') return run.distance > 5 && run.distance <= 10
+          if (filters.distance === '10-20') return run.distance > 10 && run.distance <= 20
+          if (filters.distance === '20+') return run.distance > 20
+          return true
+        })
+      }
+
+      setRuns(filteredData)
+    }
+    setLoading(false)
+  }
+
+  const resetFilters = () => setFilters({
+    date: '', time: '', run_type: 'Tous', accessibility: 'Tous',
+    pace: 'Tous', run_profile: 'Tous', distance: 'Tous'
+  })
+
+  // Composant petit Select stylisé
+  const FilterSelect = ({ label, icon: Icon, options, field, values }) => (
+    <div className="flex flex-col gap-1.5 min-w-[140px]">
+      <label className="text-[10px] font-black uppercase text-zinc-500 flex items-center gap-2 ml-1">
+        {Icon && <Icon size={12} className="text-orange-500" />} {label}
+      </label>
+      <select 
+        value={filters[field]}
+        onChange={(e) => setFilters({...filters, [field]: e.target.value})}
+        className="bg-zinc-900 border border-white/5 rounded-xl px-3 py-2.5 text-xs font-bold outline-none focus:border-orange-500/50 transition-all appearance-none cursor-pointer hover:bg-zinc-800"
+      >
+        <option value="Tous text-zinc-500">Tous</option>
+        {options.map((opt, i) => (
+          <option key={opt} value={values ? values[i] : opt}>{opt}</option>
+        ))}
+      </select>
+    </div>
+  )
 
   return (
-    <main className="min-h-screen bg-black text-white pb-20 relative">
-      {/* Header & Filtres */}
-      <div className="sticky top-0 z-30 bg-black/80 backdrop-blur-md px-6 pt-12 pb-6 border-b border-white/5">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold">Explorer</h1>
-          
-          {/* TOGGLE VUE LISTE / CARTE */}
-          <div className="flex bg-zinc-900 p-1 rounded-xl border border-white/10">
-            <button 
-              onClick={() => setViewMode('list')}
-              className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-white'}`}
-            >
-              <List size={20} />
-            </button>
-            <button 
-              onClick={() => setViewMode('map')}
-              className={`p-2 rounded-lg transition-all ${viewMode === 'map' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-white'}`}
-            >
-              <MapIcon size={20} />
+    <main className="min-h-screen bg-black text-white">
+      {/* HEADER & FILTRES */}
+      <div className="sticky top-0 z-50 bg-black/90 backdrop-blur-md border-b border-white/5 shadow-2xl">
+        <div className="max-w-[1600px] mx-auto p-4 md:p-6">
+          <div className="flex flex-wrap items-end gap-4">
+            
+            {/* Ligne 1 : Date & Heure */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-black uppercase text-zinc-500 flex items-center gap-2 ml-1"><Calendar size={12} className="text-orange-500"/> Quand ?</label>
+              <div className="flex gap-2">
+                <input type="date" suppressHydrationWarning value={filters.date} onChange={(e) => setFilters({...filters, date: e.target.value})} className="bg-zinc-900 border border-white/5 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-orange-500/50 [color-scheme:dark]"/>
+                <input type="time" suppressHydrationWarning value={filters.time} onChange={(e) => setFilters({...filters, time: e.target.value})} className="bg-zinc-900 border border-white/5 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-orange-500/50 [color-scheme:dark]"/>
+              </div>
+            </div>
+
+            {/* Ligne 1 : Autres Filtres */}
+            <FilterSelect label="Type" icon={Trophy} field="run_type" options={['EF', 'Sortie Longue', 'Seuil', 'Fractionné', 'Run Social']} />
+            <FilterSelect label="Niveau" icon={AlignLeft} field="accessibility" options={['Tous niveaux', 'Débutant' , 'Intermédiaire', 'Confirmé']} />
+            <FilterSelect label="Allure" icon={Gauge} field="pace" options={['4:00', '4:30', '5:00', '5:30', '6:00', '6:30+']} />
+            <FilterSelect label="Profil" icon={Mountain} field="run_profile" options={['Plat', 'Vallonné', 'Côte', 'Montagne']} />
+            <FilterSelect label="Distance" icon={Ruler} field="distance" options={['< 5km', '5-10km', '10-20km', '20km+']} values={['0-5', '5-10', '10-20', '20+']} />
+
+            {/* Reset */}
+            <button onClick={resetFilters} className="h-10 w-10 flex items-center justify-center bg-zinc-900 rounded-xl border border-white/5 hover:bg-orange-600 transition-all group">
+              <X size={18} className="text-zinc-500 group-hover:text-white" />
             </button>
           </div>
         </div>
-        
-        <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
-          {['Toutes', 'Quais de Saône', 'Parc Tête d\'Or', 'Matin', 'Soir'].map((filter) => (
-            <button key={filter} className="px-4 py-2 rounded-full bg-zinc-900 border border-white/10 text-sm whitespace-nowrap hover:bg-orange-600 transition-colors">
-              {filter}
-            </button>
-          ))}
-        </div>
       </div>
 
-{/* CONTENU CONDITIONNEL */}
-      <div className="relative">
-        {viewMode === 'list' ? (
-          /* VUE LISTE */
-          <div className="px-6 py-8 space-y-6 max-w-2xl mx-auto">
-            {loading ? (
-              <p className="text-center text-zinc-500">Chargement des courses...</p>
-            ) : (
-              runs.map((run) => (
-                <div key={run.id} className="group relative bg-zinc-900/40 border border-white/5 rounded-3xl overflow-hidden hover:border-orange-500/30 transition-all shadow-xl">
-                  
-                  {/* 1. LIEN VERS LA PAGE DÉTAILS */}
-                  <Link href={`/explorer/${run.id}`} className="block">
-                    <div className="h-32 bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center">
-                      <span className="text-4xl opacity-20 group-hover:scale-110 transition-transform duration-500">🏃‍♂️</span>
-                    </div>
-
-                    <div className="p-6">
-                      <div className="flex justify-between items-start mb-4">
-                        <h2 className="text-xl font-bold tracking-tight">{run.title}</h2>
-                        <span className="bg-orange-500/10 text-orange-500 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-widest border border-orange-500/20">
-                          Confirmed
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4 mb-4">
-                        <div className="flex items-center gap-2 text-zinc-400">
-                          <MapPin size={16} className="text-orange-500" />
-                          <span className="text-sm truncate">{run.place}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-zinc-400">
-                          <Gauge size={16} className="text-orange-500" />
-                          <span className="text-sm">{run.pace}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </Link>
-
-                  {/* 2. BOUTON REJOINDRE */}
-                  <div className="px-6 pb-6">
-                    <JoinDrawer run={run}>
-                      <button className="w-full py-3 bg-white text-black rounded-xl font-bold hover:bg-orange-500 hover:text-white transition-all">
-                        Rejoindre la meute
-                      </button>
-                    </JoinDrawer>
-                  </div>
-                </div>
-              )) // Fin du map
-            )} 
-          </div> // Fin du div de la Vue Liste
+      {/* RESULTATS */}
+      <div className="max-w-7xl mx-auto p-6 md:p-12">
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-40 gap-4">
+            <div className="w-12 h-12 border-4 border-orange-500/20 border-t-orange-500 rounded-full animate-spin" />
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Chargement des runs...</p>
+          </div>
         ) : (
-          /* VUE CARTE (Reste du code inchangé) */
-          <div className="h-[calc(100vh-180px)] w-full relative">
-            <Map
-              initialViewState={{
-                longitude: 4.8357,
-                latitude: 45.7640,
-                zoom: 12
-              }}
-              mapStyle="mapbox://styles/mapbox/dark-v11"
-              mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN}
-            >
-              {runs.map((run) => (
-                <Marker 
-                  key={run.id} 
-                  longitude={run.lng} 
-                  latitude={run.lat}
-                  anchor="bottom"
-                  onClick={e => {
-                    e.originalEvent.stopPropagation();
-                    setSelectedRun(run);
-                  }}
-                >
-                  <div className="group cursor-pointer">
-                    <div className="bg-orange-600 p-2 rounded-full border-2 border-white shadow-lg transition-transform group-hover:scale-125">
-                      <MapPin size={16} color="white" fill="white" />
-                    </div>
-                  </div>
-                </Marker>
-              ))}
-            </Map>
+          <>
+            <div className="mb-8 flex justify-between items-center">
+              <h2 className="text-2xl font-black italic uppercase tracking-tighter">
+                {runs.length} {runs.length > 1 ? 'Sorties trouvées' : 'Sortie trouvée'}
+              </h2>
+            </div>
 
-            {/* PETITE CARTE D'INFO FLOTTANTE */}
-            {selectedRun && (
-              <div className="absolute bottom-8 left-6 right-6 z-40 animate-in slide-in-from-bottom duration-300">
-                <div className="bg-zinc-900/90 backdrop-blur-xl border border-white/10 p-5 rounded-3xl shadow-2xl max-w-md mx-auto relative">
-                  <button 
-                    onClick={() => setSelectedRun(null)}
-                    className="absolute top-4 right-4 text-zinc-500 hover:text-white"
-                  >
-                    <X size={20} />
-                  </button>
-                  
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="w-12 h-12 bg-orange-600 rounded-2xl flex items-center justify-center text-2xl">
-                      🏃‍♂️
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-lg">{selectedRun.title}</h3>
-                      <p className="text-zinc-400 text-xs flex items-center gap-1">
-                        <MapPin size={12} /> {selectedRun.place}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-3 mb-4">
-                    <div className="flex-1 bg-white/5 rounded-xl p-2 text-center">
-                      <p className="text-[10px] text-zinc-500 uppercase font-bold">Allure</p>
-                      <p className="text-sm font-semibold">{selectedRun.pace}</p>
-                    </div>
-                    <div className="flex-1 bg-white/5 rounded-xl p-2 text-center">
-                      <p className="text-[10px] text-zinc-500 uppercase font-bold">Heure</p>
-                      <p className="text-sm font-semibold">18:30</p>
-                    </div>
-                  </div>
-
-                  {/* Ici aussi, on utilise le Link pour aller aux détails depuis la carte */}
-                  <Link href={`/explorer/${selectedRun.id}`}>
-                    <button className="w-full py-3 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 transition-all text-sm">
-                      Voir les détails
-                    </button>
-                  </Link>
-                </div>
+            {runs.length === 0 ? (
+              <div className="text-center py-20 bg-zinc-900/20 rounded-[40px] border border-dashed border-white/10">
+                <p className="text-zinc-500 font-bold">Aucun run ne correspond à tes critères.</p>
+                <button onClick={resetFilters} className="mt-4 text-orange-500 text-xs font-black uppercase underline">Réinitialiser les filtres</button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {runs.map(run => (
+                  <RunCard key={run.id} run={run} />
+                ))}
               </div>
             )}
-          </div>
+          </>
         )}
       </div>
-
-      {/* Bouton flottant "+" */}
-      <Link href="/create-run">
-        <div className="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-r from-orange-600 to-red-600 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-900/40 hover:scale-110 transition-transform active:scale-95 cursor-pointer z-50">
-          <Plus color="white" size={28} />
-        </div>
-      </Link>
     </main>
+  )
+}
+
+// Composant Carte de Run (Extrait pour la clarté)
+function RunCard({ run }) {
+  return (
+    <div className="group relative bg-zinc-900/30 border border-white/5 p-6 rounded-[35px] hover:bg-zinc-900/50 transition-all duration-500 hover:border-orange-500/30 hover:-translate-y-1">
+      <div className="flex justify-between items-start mb-6">
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] font-black text-orange-500 uppercase tracking-[0.2em]">{run.run_type}</span>
+          <h3 className="text-xl font-bold leading-tight line-clamp-2">{run.title}</h3>
+        </div>
+        <div className="bg-zinc-800 p-2 rounded-2xl border border-white/5">
+           <Calendar size={16} className="text-zinc-400" />
+        </div>
+      </div>
+
+      <div className="space-y-3 mb-6">
+        <div className="flex items-center gap-3 text-zinc-400">
+          <Clock size={14} className="text-orange-500/50" />
+          <span className="text-xs font-bold font-mono">
+            {new Date(run.start_time).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })} • {new Date(run.start_time).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
+        <div className="flex items-center gap-3 text-zinc-400">
+          <MapPin size={14} className="text-orange-500/50" />
+          <span className="text-xs font-medium line-clamp-1">{run.place}</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 pt-4 border-t border-white/5">
+        <div className="text-center">
+          <p className="text-[10px] text-zinc-500 font-black uppercase mb-1">Dist.</p>
+          <p className="text-sm font-bold">{run.distance}km</p>
+        </div>
+        <div className="text-center border-x border-white/5">
+          <p className="text-[10px] text-zinc-500 font-black uppercase mb-1">Allure</p>
+          <p className="text-sm font-bold">{run.pace}</p>
+        </div>
+        <div className="text-center">
+          <p className="text-[10px] text-zinc-500 font-black uppercase mb-1">Profil</p>
+          <p className="text-sm font-bold">{run.run_profile}</p>
+        </div>
+      </div>
+    </div>
   )
 }
