@@ -4,7 +4,7 @@ import { createClient } from '@/utils/supabase'
 import { 
   Calendar, Clock, Trophy, AlignLeft, 
   Gauge, Mountain, Ruler, Filter, X, MapPin,
-  List, Map as MapIcon, Plus, ChevronRight
+  List, Map as MapIcon, Plus, ChevronRight, Activity
 } from 'lucide-react'
 import Link from 'next/link'
 import { Map, Marker } from 'react-map-gl/mapbox'
@@ -15,8 +15,9 @@ export default function Explorer() {
   const supabase = createClient()
   const [runs, setRuns] = useState([])
   const [loading, setLoading] = useState(true)
-  const [viewMode, setViewMode] = useState('list') // 'list' ou 'map'
+  const [viewMode, setViewMode] = useState('list')
   const [selectedRun, setSelectedRun] = useState(null)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const [filters, setFilters] = useState({
     date: '',
@@ -25,7 +26,10 @@ export default function Explorer() {
     accessibility: 'Tous',
     pace: 'Tous',
     run_profile: 'Tous',
-    distance: 'Tous'
+    distance: 'Tous',
+    elevation: 'Tous',
+    duration: 'Tous',
+    run_soil: 'Tous'
   })
 
   useEffect(() => {
@@ -34,10 +38,9 @@ export default function Explorer() {
 
   const fetchRuns = async () => {
     setLoading(true)
-    // On utilise bien la VUE
     let query = supabase.from('runs_with_coords').select('*').order('start_time', { ascending: true })
 
-    // Filtres Supabase
+    // 1. Filtres SQL directs (Colonnes exactes)
     if (filters.date) {
       query = query.gte('start_time', `${filters.date} 00:00:00`)
       query = query.lte('start_time', `${filters.date} 23:59:59`)
@@ -46,6 +49,7 @@ export default function Explorer() {
     if (filters.accessibility !== 'Tous') query = query.eq('accessibility', filters.accessibility)
     if (filters.run_profile !== 'Tous') query = query.eq('run_profile', filters.run_profile)
     if (filters.pace !== 'Tous') query = query.eq('pace', filters.pace)
+    if (filters.run_soil !== 'Tous') query = query.eq('run_soil', filters.run_soil)
 
     const { data, error } = await query
     
@@ -54,7 +58,7 @@ export default function Explorer() {
     } else {
       let filteredData = data || []
 
-      // Filtre Heure local (+/- 1h)
+      // 2. Filtre Heure local (+/- 1h)
       if (filters.time) {
         filteredData = filteredData.filter(run => {
           const runDate = new Date(run.start_time)
@@ -65,7 +69,7 @@ export default function Explorer() {
         })
       }
 
-      // Filtre Distance local
+      // 3. Filtre Distance local
       if (filters.distance !== 'Tous') {
         filteredData = filteredData.filter(run => {
           const d = parseFloat(run.distance)
@@ -76,6 +80,30 @@ export default function Explorer() {
           return true
         })
       }
+
+      // 4. Filtre Dénivelé (elevation) local
+      if (filters.elevation !== 'Tous') {
+        filteredData = filteredData.filter(run => {
+          const elev = parseInt(run.elevation)
+          if (filters.elevation === 'Plat') return elev < 50
+          if (filters.elevation === 'D+ < 200m') return elev >= 50 && elev < 200
+          if (filters.elevation === 'D+ 200-500m') return elev >= 200 && elev <= 500
+          if (filters.elevation === 'D+ > 500m') return elev > 500
+          return true
+        })
+      }
+
+      // 5. Filtre Durée (duration) local
+      if (filters.duration !== 'Tous') {
+        filteredData = filteredData.filter(run => {
+          const dur = parseInt(run.duration) // On suppose que c'est stocké en minutes
+          if (filters.duration === '< 45min') return dur < 45
+          if (filters.duration === '45-90min') return dur >= 45 && dur <= 90
+          if (filters.duration === '1h30+') return dur > 90
+          return true
+        })
+      }
+
       setRuns(filteredData)
     }
     setLoading(false)
@@ -83,7 +111,8 @@ export default function Explorer() {
 
   const resetFilters = () => setFilters({
     date: '', time: '', run_type: 'Tous', accessibility: 'Tous',
-    pace: 'Tous', run_profile: 'Tous', distance: 'Tous'
+    pace: 'Tous', run_profile: 'Tous', distance: 'Tous',
+    elevation: 'Tous', duration: 'Tous', run_soil: 'Tous'
   })
 
   const FilterSelect = ({ label, icon: Icon, options, field, values }) => (
@@ -106,20 +135,13 @@ export default function Explorer() {
 
   return (
     <main className="min-h-screen bg-black text-white relative">
-      {/* HEADER & FILTRES STICKY */}
-      <div className="sticky top-0 z-50 bg-black/90 backdrop-blur-md border-b border-white/5 shadow-2xl px-4 md:px-8 py-6">
+      <div className="sticky top-0 z-50 bg-black/90 backdrop-blur-md border-b border-white/5 px-4 md:px-8 py-6">
         <div className="max-w-[1600px] mx-auto space-y-6">
           <div className="flex justify-between items-center">
             <h1 className="text-3xl font-black italic uppercase tracking-tighter">Explorer</h1>
-            
-            {/* TOGGLE VUE */}
             <div className="flex bg-zinc-900 p-1 rounded-xl border border-white/10">
-              <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-orange-600 text-white' : 'text-zinc-500'}`}>
-                <List size={20} />
-              </button>
-              <button onClick={() => setViewMode('map')} className={`p-2 rounded-lg transition-all ${viewMode === 'map' ? 'bg-orange-600 text-white' : 'text-zinc-500'}`}>
-                <MapIcon size={20} />
-              </button>
+              <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-orange-600 text-white' : 'text-zinc-500'}`}><List size={20} /></button>
+              <button onClick={() => setViewMode('map')} className={`p-2 rounded-lg transition-all ${viewMode === 'map' ? 'bg-orange-600 text-white' : 'text-zinc-500'}`}><MapIcon size={20} /></button>
             </div>
           </div>
 
@@ -127,46 +149,51 @@ export default function Explorer() {
             <div className="flex flex-col gap-1.5">
               <label className="text-[10px] font-black uppercase text-zinc-500 flex items-center gap-2 ml-1"><Calendar size={12} className="text-orange-500"/> Quand ?</label>
               <div className="flex gap-2">
-                <input type="date" suppressHydrationWarning value={filters.date} onChange={(e) => setFilters({...filters, date: e.target.value})} className="bg-zinc-900 border border-white/5 rounded-xl px-3 py-2 text-xs font-bold outline-none [color-scheme:dark]"/>
-                <input type="time" suppressHydrationWarning value={filters.time} onChange={(e) => setFilters({...filters, time: e.target.value})} className="bg-zinc-900 border border-white/5 rounded-xl px-3 py-2 text-xs font-bold outline-none [color-scheme:dark]"/>
+                <input type="date" value={filters.date} onChange={(e) => setFilters({...filters, date: e.target.value})} className="bg-zinc-900 border border-white/5 rounded-xl px-3 py-2 text-xs font-bold outline-none [color-scheme:dark]"/>
+                <input type="time" value={filters.time} onChange={(e) => setFilters({...filters, time: e.target.value})} className="bg-zinc-900 border border-white/5 rounded-xl px-3 py-2 text-xs font-bold outline-none [color-scheme:dark]"/>
               </div>
             </div>
-
             <FilterSelect label="Type" icon={Trophy} field="run_type" options={['EF', 'Sortie Longue', 'Seuil', 'Fractionné', 'Run Social']} />
             <FilterSelect label="Niveau" icon={AlignLeft} field="accessibility" options={['Tous niveaux', 'Débutant' , 'Intermédiaire', 'Confirmé']} />
-            <FilterSelect label="Allure" icon={Gauge} field="pace" options={['4:00', '4:30', '5:00', '5:30', '6:00', '6:30+']} />
-            <FilterSelect label="Profil" icon={Mountain} field="run_profile" options={['Plat', 'Vallonné', 'Côte', 'Montagne']} />
-            <FilterSelect label="Distance" icon={Ruler} field="distance" options={['< 5km', '5-10km', '10-20km', '20km+']} values={['0-5', '5-10', '10-20', '20+']} />
-
-            <button onClick={resetFilters} className="h-10 w-10 flex items-center justify-center bg-zinc-900 rounded-xl border border-white/5 hover:bg-red-900/20 transition-all">
-              <X size={18} className="text-zinc-500" />
+            
+            <button 
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className={`h-11 px-4 flex items-center gap-2 rounded-xl border transition-all text-xs font-bold ${showAdvanced ? 'bg-orange-600/10 border-orange-500 text-orange-500' : 'bg-zinc-900 border-white/5 text-zinc-400 hover:text-white'}`}
+            >
+              <Filter size={14} /> {showAdvanced ? 'Moins de critères' : 'Plus de critères'}
             </button>
+
+            <button onClick={resetFilters} className="h-11 w-11 flex items-center justify-center bg-zinc-900 rounded-xl border border-white/5 hover:bg-red-900/20 transition-all text-zinc-500"><X size={18} /></button>
           </div>
+
+          {showAdvanced && (
+            <div className="flex flex-wrap gap-4 pt-4 border-t border-white/5 animate-in fade-in slide-in-from-top-2">
+              <FilterSelect label="Allure" icon={Gauge} field="pace" options={['4:00', '4:30', '5:00', '5:30', '6:00', '6:30+']} />
+              <FilterSelect label="Profil" icon={Mountain} field="run_profile" options={['Plat', 'Vallonné', 'Côte', 'Montagne']} />
+              <FilterSelect label="Distance" icon={Ruler} field="distance" options={['< 5km', '5-10km', '10-20km', '20km+']} values={['0-5', '5-10', '10-20', '20+']} />
+              <FilterSelect label="Dénivelé" icon={Mountain} field="elevation" options={['Plat', 'D+ < 200m', 'D+ 200-500m', 'D+ > 500m']} />
+              <FilterSelect label="Durée" icon={Clock} field="duration" options={['< 45min', '45-90min', '1h30+']} />
+              <FilterSelect label="Revêtement" icon={Activity} field="run_soil" options={['Route', 'Chemin', 'Mixte', 'Piste']} />
+            </div>
+          )}
         </div>
       </div>
 
-      {/* CONTENU */}
       <div className="relative">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-40 gap-4">
             <div className="w-12 h-12 border-4 border-orange-500/20 border-t-orange-500 rounded-full animate-spin" />
           </div>
         ) : viewMode === 'list' ? (
-          /* --- VUE LISTE --- */
           <div className="max-w-7xl mx-auto p-6 md:p-12">
-            <h2 className="text-2xl font-black italic uppercase tracking-tighter mb-8">
-              {runs.length} {runs.length > 1 ? 'Sorties trouvées' : 'Sortie trouvée'}
-            </h2>
-            {runs.length === 0 ? (
-              <NoResults reset={resetFilters} />
-            ) : (
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter mb-8">{runs.length} {runs.length > 1 ? 'Sorties trouvées' : 'Sortie trouvée'}</h2>
+            {runs.length === 0 ? <NoResults reset={resetFilters} /> : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {runs.map(run => <RunCard key={run.id} run={run} />)}
               </div>
             )}
           </div>
         ) : (
-          /* --- VUE CARTE --- */
           <div className="h-[calc(100vh-220px)] w-full relative">
             <Map
               initialViewState={{ longitude: 4.8357, latitude: 45.7640, zoom: 12 }}
@@ -174,23 +201,10 @@ export default function Explorer() {
               mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN}
             >
               {runs.map((run) => {
-                // On s'assure que lng et lat sont bien des nombres valides
-                const longitude = parseFloat(run.lng);
-                const latitude = parseFloat(run.lat);
-
-                if (isNaN(longitude) || isNaN(latitude)) return null;
-
+                const lng = parseFloat(run.lng); const lat = parseFloat(run.lat);
+                if (isNaN(lng) || isNaN(lat)) return null;
                 return (
-                  <Marker 
-                    key={run.id} 
-                    longitude={longitude} 
-                    latitude={latitude} 
-                    anchor="bottom"
-                    onClick={e => { 
-                      e.originalEvent.stopPropagation(); 
-                      setSelectedRun(run); 
-                    }}
-                  >
+                  <Marker key={run.id} longitude={lng} latitude={lat} anchor="bottom" onClick={e => { e.originalEvent.stopPropagation(); setSelectedRun(run); }}>
                     <div className="cursor-pointer group">
                       <div className="bg-orange-600 p-2 rounded-full border-2 border-white shadow-lg transition-transform group-hover:scale-125">
                         <MapPin size={16} color="white" fill="white" />
@@ -201,21 +215,39 @@ export default function Explorer() {
               })}
             </Map>
 
-            {/* INFO FLOTTANTE CARTE */}
             {selectedRun && (
               <div className="absolute bottom-8 left-6 right-6 z-40">
-                <div className="bg-zinc-900/95 backdrop-blur-xl border border-white/10 p-5 rounded-[32px] shadow-2xl max-w-md mx-auto relative animate-in slide-in-from-bottom duration-300">
-                  <button onClick={() => setSelectedRun(null)} className="absolute top-4 right-4 text-zinc-500"><X size={20} /></button>
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="w-12 h-12 bg-orange-600 rounded-2xl flex items-center justify-center text-2xl">🏃‍♂️</div>
+                <div className="bg-zinc-900/95 backdrop-blur-xl border border-white/10 p-6 rounded-[32px] shadow-2xl max-w-md mx-auto relative animate-in slide-in-from-bottom duration-300">
+                  <button onClick={() => setSelectedRun(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X size={20} /></button>
+                  <div className="flex items-center gap-4 mb-6">
+                    <div className="w-14 h-14 bg-orange-600 rounded-2xl flex items-center justify-center text-3xl shadow-lg shadow-orange-900/20">🏃‍♂️</div>
                     <div>
-                      <h3 className="font-bold text-lg leading-tight">{selectedRun.title}</h3>
-                      <p className="text-zinc-400 text-xs flex items-center gap-1"><MapPin size={12} /> {selectedRun.place}</p>
+                      <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest">{selectedRun.run_type}</span>
+                      <h3 className="font-bold text-xl leading-tight">{selectedRun.title}</h3>
+                      <p className="text-zinc-400 text-xs flex items-center gap-1 mt-1"><MapPin size={12} className="text-orange-500/50" /> {selectedRun.place}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mb-6">
+                    <div className="bg-white/5 rounded-2xl p-3 flex items-center gap-3">
+                      <Calendar size={16} className="text-orange-500" />
+                      <div><p className="text-[9px] text-zinc-500 uppercase font-black">Date & Heure</p><p className="text-xs font-bold">{new Date(selectedRun.start_time).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} • {new Date(selectedRun.start_time).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p></div>
+                    </div>
+                    <div className="bg-white/5 rounded-2xl p-3 flex items-center gap-3">
+                      <Trophy size={16} className="text-orange-500" />
+                      <div><p className="text-[9px] text-zinc-500 uppercase font-black">Niveau</p><p className="text-xs font-bold">{selectedRun.accessibility}</p></div>
+                    </div>
+                    <div className="bg-white/5 rounded-2xl p-3 flex items-center gap-3">
+                      <Ruler size={16} className="text-orange-500" />
+                      <div><p className="text-[9px] text-zinc-500 uppercase font-black">Distance</p><p className="text-xs font-bold">{selectedRun.distance} km</p></div>
+                    </div>
+                    <div className="bg-white/5 rounded-2xl p-3 flex items-center gap-3">
+                      <Mountain size={16} className="text-orange-500" />
+                      <div><p className="text-[9px] text-zinc-500 uppercase font-black">Profil</p><p className="text-xs font-bold">{selectedRun.run_profile}</p></div>
                     </div>
                   </div>
                   <Link href={`/explorer/${selectedRun.id}`}>
-                    <button className="w-full py-4 bg-orange-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-orange-500 transition-all flex items-center justify-center gap-2">
-                      Voir les détails <ChevronRight size={14} />
+                    <button className="w-full py-4 bg-orange-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-orange-500 transition-all flex items-center justify-center gap-2 group shadow-lg shadow-orange-900/20">
+                      Voir les détails complets <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
                     </button>
                   </Link>
                 </div>
@@ -225,7 +257,6 @@ export default function Explorer() {
         )}
       </div>
 
-      {/* BOUTON FLOTTANT CRÉATION */}
       <Link href="/create-run">
         <div className="fixed bottom-8 right-8 w-16 h-16 bg-gradient-to-r from-orange-600 to-red-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-orange-900/40 hover:scale-110 transition-transform z-50">
           <Plus color="white" size={32} />
