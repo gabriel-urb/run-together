@@ -19,6 +19,7 @@ const SearchBox = dynamic(
 export default function CreateRun() {
   const router = useRouter()
   const supabase = createClient()
+  const [loading, setLoading] = useState(false)
   const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN
 
   const [step, setStep] = useState(1)
@@ -57,35 +58,67 @@ export default function CreateRun() {
   }
 
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return alert("Connecte-toi d'abord !")
+    if (e) e.preventDefault();
+    setLoading(true);
 
-    const finalElevation = formData.run_profile === 'Plat' ? 0 : formData.elevation
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
 
-    const { error } = await supabase.from('runs').insert([{ 
-      title: formData.title,
-      place: formData.place,
-      pace: formData.pace,
-      start_time: `${formData.date_only} ${formData.time_only}:00`,
-      distance: formData.distance,
-      duration: formData.duration,
-      run_type: formData.run_type,
-      run_soil: formData.run_soil,
-      run_profile: formData.run_profile,
-      elevation: finalElevation,
-      accessibility: formData.accessibility,
-      max_attendees: formData.max_attendees,
-      location: `POINT(${formData.lng} ${formData.lat})`,
-      organizer_id: user.id 
-    }])
+      if (!user) {
+        alert("Tu dois être connecté !");
+        setLoading(false);
+        return;
+      }
 
-    if (error) {
-      alert("Erreur : " + error.message)
-    } else {
-      router.push('/explorer')
+      // Reconstruction du timestamp pour Supabase (combine date + heure)
+      const combinedDateTime = new Date(`${formData.date_only}T${formData.time_only}:00`).toISOString();
+
+      const runData = {
+        title: formData.title,
+        start_time: combinedDateTime, // Correction ici
+        distance: parseFloat(formData.distance),
+        pace: formData.pace,
+        run_type: formData.run_type,
+        accessibility: formData.accessibility,
+        run_profile: formData.run_profile,
+        run_soil: formData.run_soil,
+        place: formData.place,
+        location: `POINT(${formData.lng} ${formData.lat})`,
+        organizer_id: user.id,
+        max_attendees: parseInt(formData.max_attendees) || 15,
+        elevation: parseInt(formData.elevation) || 0
+      };
+
+      const { data: newRun, error: runError } = await supabase
+        .from('runs')
+        .insert([runData])
+        .select()
+        .single();
+
+      if (runError) throw runError;
+
+      const { error: attendeeError } = await supabase
+        .from('runs_attendees')
+        .insert([
+          {
+            run_id: newRun.id,
+            user_id: user.id,
+            is_organizer: true
+          }
+        ]);
+
+      if (attendeeError) throw attendeeError;
+
+      // Redirection
+      router.push(`/explorer/${newRun.id}`);
+
+    } catch (err) {
+      console.error("Erreur complète:", err);
+      alert("Erreur lors de la création : " + err.message);
+    } finally {
+      setLoading(false);
     }
-  }
+  };
 
   const BadgeSelector = ({ label, options, current, field, icon: Icon, values }) => (
     <div className="space-y-3">
@@ -279,8 +312,13 @@ export default function CreateRun() {
               <button type="button" onClick={() => setStep(1)} className="p-6 bg-zinc-900 text-white rounded-[30px] font-black uppercase flex items-center gap-2 hover:bg-zinc-800 transition-all">
                 <ChevronLeft size={20}/> Retour
               </button>
-              <button onClick={handleSubmit} className="flex-1 py-6 bg-orange-600 text-white rounded-[30px] font-black uppercase tracking-widest shadow-2xl shadow-orange-900/40 flex items-center justify-center gap-2 hover:bg-orange-500 transition-all active:scale-[0.98]">
-                Diffuser la sortie <Zap size={18} className="fill-current"/>
+              <button 
+                onClick={handleSubmit} 
+                disabled={loading}
+                className="flex-1 py-6 bg-orange-600 text-white rounded-[30px] font-black uppercase tracking-widest shadow-2xl shadow-orange-900/40 flex items-center justify-center gap-2 hover:bg-orange-500 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Création en cours...' : 'Créer la sortie'} 
+                {!loading && <Zap size={18} className="fill-current"/>}
               </button>
             </div>
           </div>
